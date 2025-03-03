@@ -1,12 +1,12 @@
 from sqlalchemy.orm import Session
-from models import Submission
-from schemas import SubmissionCreate
+from src.models import Submission
+from src.schemas import SubmissionCreate
 
 def create_submission(db: Session, submission: SubmissionCreate):
     db_submission = Submission(
         odk_id=submission.odk_id,
         data=submission.data,
-        geolocation=submission.geolocation
+        geolocation=f"SRID=4326;{submission.geolocation}"  # Ensure SRID format
     )
     db.add(db_submission)
     db.commit()
