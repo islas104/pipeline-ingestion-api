@@ -22,7 +22,7 @@ git clone https://github.com/islas104/pipeline-ingestion-api.git
 cd pipeline-ingestion-api
 ```
 
-### \*\*Create a Virtual Environment
+### Create a Virtual Environment
 
 ```sh
 python3 -m venv venv
@@ -30,13 +30,13 @@ source venv/bin/activate  # Mac/Linux
 venv\Scripts\activate     # Windows
 ```
 
-### \*\*Install Dependencies
+### Install Dependencies
 
 ```sh
 pip install -r requirements.txt
 ```
 
-### \*\*Running the API
+### Running the API
 
 **Start the Server**
 
