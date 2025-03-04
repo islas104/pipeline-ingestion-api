@@ -9,6 +9,7 @@ from src.models import Submission
 from src.schemas import SubmissionCreate
 import json
 import logging
+from shapely import wkt
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -31,9 +32,6 @@ def get_db():
 
 # Function to convert dictionary/list to XML response
 def dict_to_xml(data, root_tag="submission"):
-    """
-    Converts dictionary or list of dictionaries into a properly structured XML.
-    """
     root = Element(root_tag)
 
     if isinstance(data, list):  # Handling multiple submissions
@@ -59,6 +57,8 @@ def dict_to_xml(data, root_tag="submission"):
 
     return tostring(root)
 
+from shapely import wkt
+
 @app.post("/submissions/")
 def create_submission(
     submission: SubmissionCreate,
@@ -68,37 +68,60 @@ def create_submission(
     logger.info("Received submission request")
 
     try:
-        # Insert data into DB
-        db_submission = Submission(
-            odk_id=submission.odk_id,
-            data=json.dumps(submission.data),  # Ensure JSON object is stored correctly
-            geolocation=f"SRID=4326;{submission.geolocation}"  # Ensure proper geolocation format
-        )
-        db.add(db_submission)
-        db.commit()
-        db.refresh(db_submission)
+        # ✅ Validate Geolocation Format Before Storing
+        try:
+            point = wkt.loads(submission.geolocation)  # Ensure it's a valid WKT
+            geolocation_value = f"SRID=4326;{submission.geolocation}"
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid geolocation format")
 
-        # Convert WKB geolocation to WKT for proper serialization
+        # ✅ Check for existing submission to update instead of inserting duplicate
+        existing_submission = db.query(Submission).filter(Submission.odk_id == submission.odk_id).first()
+
+        submission_data = json.dumps(submission.data) if isinstance(submission.data, dict) else submission.data
+
+        if existing_submission:
+            # Update existing record
+            existing_submission.data = submission_data
+            existing_submission.geolocation = geolocation_value
+            db.commit()
+            db.refresh(existing_submission)
+            db_submission = existing_submission
+        else:
+            # Insert new record
+            db_submission = Submission(
+                odk_id=submission.odk_id,
+                data=submission_data,
+                geolocation=geolocation_value
+            )
+            db.add(db_submission)
+            db.commit()
+            db.refresh(db_submission)
+
+        # Convert WKB geolocation to WKT safely
         geolocation_wkt = None
         if db_submission.geolocation:
-            geolocation_wkt = wkb_loads(bytes(db_submission.geolocation.data)).wkt
+            try:
+                geolocation_wkt = wkb_loads(bytes(db_submission.geolocation.data)).wkt
+            except Exception as e:
+                logger.error(f"Error converting geolocation for submission {db_submission.id}: {str(e)}")
 
-        # Ensure data is returned as a JSON object
         response_data = {
             "id": db_submission.id,
             "odk_id": db_submission.odk_id,
-            "data": json.loads(db_submission.data),  # Convert back to JSON object
+            "data": json.loads(db_submission.data),
             "geolocation": geolocation_wkt,
         }
 
         logger.info(f"Data successfully stored: {response_data}")
 
-        # Return XML if requested
         if "application/xml" in accept:
             return Response(content=dict_to_xml(response_data), media_type="application/xml")
 
         return JSONResponse(content=response_data)
-    
+
+    except HTTPException as e:
+        raise e  # Let FastAPI handle expected validation errors
     except Exception as e:
         logger.error(f"Error processing submission: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -112,17 +135,23 @@ def get_submissions(db: Session = Depends(get_db), accept: str = Header(default=
         try:
             data_parsed = json.loads(sub.data) if isinstance(sub.data, str) else sub.data
         except json.JSONDecodeError:
-            data_parsed = sub.data  # Fallback if already a dict
+            data_parsed = sub.data  
+
+        geolocation_wkt = None
+        if sub.geolocation:
+            try:
+                geolocation_wkt = wkb_loads(bytes(sub.geolocation.data)).wkt
+            except Exception as e:
+                logger.error(f"Error converting geolocation for submission {sub.id}: {str(e)}")
 
         response_data.append({
             "id": sub.id,
             "odk_id": sub.odk_id,
             "data": data_parsed,
-            "geolocation": wkb_loads(bytes(sub.geolocation.data)).wkt if sub.geolocation else None,
+            "geolocation": geolocation_wkt,
         })
 
-    # Return XML if requested
     if "application/xml" in accept:
         return Response(content=dict_to_xml(response_data, root_tag="submissions"), media_type="application/xml")
-    
+
     return JSONResponse(content=response_data)

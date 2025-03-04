@@ -6,6 +6,6 @@ class Submission(Base):
     __tablename__ = "submissions"
 
     id = Column(Integer, primary_key=True, index=True)
-    odk_id = Column(String, index=True)
+    odk_id = Column(String, unique=True, index=True)  # Ensure odk_id is unique
     data = Column(JSON, nullable=False)
     geolocation = Column(Geometry("POINT", srid=4326), nullable=True)
