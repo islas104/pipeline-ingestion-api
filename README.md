@@ -7,10 +7,13 @@ This API is designed to receive, store, and retrieve ODK (Open Data Kit) submiss
 ## **Features**
 
 Accepts ODK submissions via a REST API.  
-Stores structured data (**JSON, XML**).  
-Handles geospatial data (**WKT/GeoJSON**).  
+Stores structured data (**JSON, XML**) and geospatial data (**WKT/GeoJSON**).  
+Enforces **unique constraints** on `odk_id` to prevent duplicate submissions.  
+Validates and rejects **invalid geolocation data**.  
+Ensures **empty `odk_id` values are not accepted**.  
+Supports **high-concurrency data ingestion** without failures.  
 Provides API endpoints to retrieve stored submissions.  
-Uses PostgreSQL (with PostGIS) for efficient geospatial storage.  
+Uses **PostgreSQL with PostGIS** for efficient geospatial storage.  
 Supports **Swagger UI** for API testing.
 
 ## **Installation & Setup**
@@ -47,17 +50,6 @@ uvicorn src.main:app --reload
 The API will be available at:
 ➡️ http://127.0.0.1:8000
 
-## **Features**
-✅ Accepts ODK submissions via a REST API.  
-✅ Stores structured data (**JSON, XML**) and geospatial data (**WKT/GeoJSON**).  
-✅ Enforces **unique constraints** on `odk_id` to prevent duplicate submissions.  
-✅ Validates and rejects **invalid geolocation data**.  
-✅ Ensures **empty `odk_id` values are not accepted**.  
-✅ Supports **high-concurrency data ingestion** without failures.  
-✅ Provides API endpoints to retrieve stored submissions.  
-✅ Uses **PostgreSQL with PostGIS** for efficient geospatial storage.  
-✅ Supports **Swagger UI** for API testing.  
-
 ### **Database Setup & Migrations**
 
 Before running the API, apply the database migrations:
@@ -65,4 +57,3 @@ Before running the API, apply the database migrations:
 ```sh
 alembic upgrade head
 ```
-
