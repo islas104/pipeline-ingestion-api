@@ -4,12 +4,23 @@ from starlette.responses import Response
 from sqlalchemy.orm import Session
 from xml.etree.ElementTree import Element, SubElement, tostring
 from shapely.wkb import loads as wkb_loads
-from src.database import engine, SessionLocal
+from src.database import SessionLocal
 from src.models import Submission
 from src.schemas import SubmissionCreate
 import json
 import logging
 from shapely import wkt
+from functools import lru_cache
+from dotenv import load_dotenv
+import os
+
+# Load environment variables once using lru_cache to prevent redundant calls
+@lru_cache()
+def get_env():
+    load_dotenv()
+    return {
+        "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql://ianawaz@localhost/pipeline_ingestion")
+    }
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -30,34 +41,35 @@ def get_db():
     finally:
         db.close()
 
-# Function to convert dictionary/list to XML response
+# Convert dictionary/list to XML response
 def dict_to_xml(data, root_tag="submission"):
     root = Element(root_tag)
+    
+    def build_xml(element, value):
+        """Helper function to build XML recursively"""
+        if isinstance(value, dict):
+            for k, v in value.items():
+                sub_elem = SubElement(element, k)
+                build_xml(sub_elem, v)
+        elif isinstance(value, list):
+            for item in value:
+                item_elem = SubElement(element, "item")
+                build_xml(item_elem, item)
+        else:
+            element.text = str(value)
 
     if isinstance(data, list):  # Handling multiple submissions
         for entry in data:
             submission_elem = SubElement(root, "submission")
             for key, value in entry.items():
                 child = SubElement(submission_elem, key)
-                if isinstance(value, dict):  
-                    for sub_key, sub_value in value.items():
-                        sub_child = SubElement(child, sub_key)
-                        sub_child.text = str(sub_value)
-                else:
-                    child.text = str(value)
+                build_xml(child, value)
     else:  # Handling single submission
         for key, value in data.items():
             child = SubElement(root, key)
-            if isinstance(value, dict):  
-                for sub_key, sub_value in value.items():
-                    sub_child = SubElement(child, sub_key)
-                    sub_child.text = str(sub_value)
-            else:
-                child.text = str(value)
+            build_xml(child, value)
 
     return tostring(root)
-
-from shapely import wkt
 
 @app.post("/submissions/")
 def create_submission(
@@ -77,18 +89,15 @@ def create_submission(
 
         # ✅ Check for existing submission to update instead of inserting duplicate
         existing_submission = db.query(Submission).filter(Submission.odk_id == submission.odk_id).first()
-
         submission_data = json.dumps(submission.data) if isinstance(submission.data, dict) else submission.data
 
         if existing_submission:
-            # Update existing record
             existing_submission.data = submission_data
             existing_submission.geolocation = geolocation_value
             db.commit()
             db.refresh(existing_submission)
             db_submission = existing_submission
         else:
-            # Insert new record
             db_submission = Submission(
                 odk_id=submission.odk_id,
                 data=submission_data,
