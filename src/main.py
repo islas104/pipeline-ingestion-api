@@ -13,6 +13,8 @@ from shapely import wkt
 from functools import lru_cache
 from dotenv import load_dotenv
 import os
+import xml.etree.ElementTree as ET
+from fastapi import Body
 
 # Load environment variables once using lru_cache to prevent redundant calls
 @lru_cache()
@@ -135,6 +137,39 @@ def create_submission(
         logger.error(f"Error processing submission: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+@app.post("/submissions/xml/")
+def create_submission_xml(
+    xml_body: str = Body(..., media_type="application/xml"),
+    db: Session = Depends(get_db),
+):
+    try:
+        # Parse the XML
+        root = ET.fromstring(xml_body)
+        odk_id = root.find("odk_id").text
+        data = {child.tag: child.text for child in root.find("data")}
+        geolocation = root.find("geolocation").text
+
+        # Validate geolocation format
+        try:
+            wkt.loads(geolocation)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid geolocation format")
+
+        # Store in DB
+        submission = Submission(
+            odk_id=odk_id,
+            data=json.dumps(data),
+            geolocation=f"SRID=4326;{geolocation}",
+        )
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+
+        return {"id": submission.id, "odk_id": odk_id, "data": data, "geolocation": geolocation}
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid XML format: {str(e)}")
+    
 @app.get("/submissions/")
 def get_submissions(db: Session = Depends(get_db), accept: str = Header(default="application/json")):
     submissions = db.query(Submission).all()
